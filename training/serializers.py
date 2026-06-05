@@ -53,7 +53,7 @@ class BatchSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_registration_count(self, obj):
-        return obj.registers.count() if hasattr(obj, 'registers') else obj.registrations.count()
+        return obj.registrations.count()
 
 
 class BatchCreateSerializer(serializers.ModelSerializer):
