@@ -38,7 +38,10 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        data = request.data.copy()
+        if data.get('role') == User.ROLE_MANAGER:
+            data['role'] = User.ROLE_EXECUTOR
+        serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         return Response({
@@ -171,7 +174,7 @@ class CertificateViewSet(viewsets.ModelViewSet):
     filterset_class = CertificateFilter
 
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_review']:
             return [IsAuthenticated(), IsManagerOrReviewer()]
         return [IsAuthenticated()]
 
@@ -238,13 +241,16 @@ class CSVImportView(generics.GenericAPIView):
         if not file.name.endswith('.csv'):
             return Response({'detail': '文件格式必须为CSV'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            decoded = file.read().decode('utf-8-sig')
-        except UnicodeDecodeError:
+        raw_bytes = file.read()
+        decoded = None
+        for encoding in ['utf-8-sig', 'gbk', 'utf-8']:
             try:
-                decoded = file.read().decode('gbk')
-            except UnicodeDecodeError:
-                return Response({'detail': '文件编码不支持，请使用UTF-8或GBK编码'}, status=status.HTTP_400_BAD_REQUEST)
+                decoded = raw_bytes.decode(encoding)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if decoded is None:
+            return Response({'detail': '文件编码不支持，请使用UTF-8或GBK编码'}, status=status.HTTP_400_BAD_REQUEST)
 
         reader = csv.DictReader(io.StringIO(decoded))
         rows = list(reader)
@@ -473,10 +479,57 @@ def pending_certificates(request):
     if end_date:
         certificates = certificates.filter(registration__batch__end_date__lte=end_date)
 
-    serializer = CertificateSerializer(certificates, many=True)
+    cert_results = list(CertificateSerializer(certificates, many=True).data)
+
+    existing_cert_reg_ids = set(
+        Certificate.objects.filter(
+            registration__isnull=False
+        ).values_list('registration_id', flat=True)
+    )
+
+    eligible_regs = Registration.objects.select_related(
+        'student', 'batch', 'batch__course', 'batch__instructor'
+    ).filter(
+        status=Registration.STATUS_ENROLLED,
+        fee_status=Registration.FEE_PAID,
+        batch__status=Batch.STATUS_COMPLETED,
+    ).exclude(id__in=existing_cert_reg_ids)
+
+    if course_id:
+        eligible_regs = eligible_regs.filter(batch__course_id=course_id)
+    if batch_id:
+        eligible_regs = eligible_regs.filter(batch_id=batch_id)
+    if instructor_id:
+        eligible_regs = eligible_regs.filter(batch__instructor_id=instructor_id)
+    if start_date:
+        eligible_regs = eligible_regs.filter(batch__start_date__gte=start_date)
+    if end_date:
+        eligible_regs = eligible_regs.filter(batch__end_date__lte=end_date)
+
+    auto_results = []
+    for reg in eligible_regs:
+        auto_results.append({
+            'id': None,
+            'student_name': reg.student.name,
+            'student_phone': reg.student.phone,
+            'batch_name': reg.batch.name,
+            'course_name': reg.batch.course.name,
+            'template_name': '',
+            'reviewer_name': '',
+            'certificate_no': '',
+            'status': 'pending',
+            'issued_date': None,
+            'remark': '',
+            'created_at': None,
+            'updated_at': None,
+            'registration': reg.id,
+            'template': None,
+            'reviewed_by': None,
+        })
+
     return Response({
-        'count': len(serializer.data),
-        'results': serializer.data,
+        'count': len(cert_results) + len(auto_results),
+        'results': cert_results + auto_results,
     })
 
 
