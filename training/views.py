@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from .constants import ROLE_MANAGER, ROLE_EXECUTOR
 from .models import (
     Instructor, Course, Batch, Student, Registration,
-    CheckIn, CertificateTemplate, Certificate,
+    CheckIn, CertificateTemplate, Certificate, Graduation,
 )
 from .serializers import (
     UserSerializer, UserCreateSerializer,
@@ -18,15 +18,20 @@ from .serializers import (
     CheckInSerializer, CertificateTemplateSerializer,
     CertificateSerializer,
     BulkCheckInSerializer, BulkCertificateReviewSerializer,
+    GraduationSerializer, GraduationUpdateSerializer,
+    EligibilityCheckSerializer, BulkGraduationConfirmSerializer,
 )
 from .permissions import IsManager, IsExecutor, IsManagerOrExecutor, IsManagerOrReviewer
-from .filters import RegistrationFilter, BatchFilter, CertificateFilter, CheckInFilter
+from .filters import RegistrationFilter, BatchFilter, CertificateFilter, CheckInFilter, GraduationFilter
 from .services.import_service import import_registrations
 from .services.checkin_service import bulk_checkin
 from .services.certificate_service import bulk_review
 from .services.report_service import (
     get_unchecked_list, get_pending_certificates,
     get_import_error_summary, get_dashboard_stats,
+)
+from .services.graduation_service import (
+    refresh_graduation_status, batch_confirm_graduation, get_batch_graduation_stats,
 )
 
 User = get_user_model()
@@ -226,3 +231,68 @@ def import_error_summary(request):
 def dashboard_stats(request):
     data = get_dashboard_stats()
     return Response(data)
+
+
+class GraduationViewSet(viewsets.ModelViewSet):
+    queryset = Graduation.objects.select_related(
+        'registration', 'registration__student', 'registration__batch',
+        'registration__batch__course', 'registration__batch__instructor',
+        'graduated_by',
+    ).all()
+    filterset_class = GraduationFilter
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action in ['update', 'partial_update']:
+            return GraduationUpdateSerializer
+        return GraduationSerializer
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'batch_confirm', 'check_eligibility']:
+            return [IsAuthenticated(), IsManagerOrExecutor()]
+        return [IsAuthenticated()]
+
+    @action(detail=False, methods=['post'], url_path='check-eligibility')
+    def check_eligibility(self, request):
+        serializer = EligibilityCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        batch_id = serializer.validated_data.get('batch')
+        registration_id = serializer.validated_data.get('registration')
+
+        results = refresh_graduation_status(
+            batch_id=batch_id,
+            registration_id=registration_id,
+        )
+
+        return Response({
+            'count': len(results),
+            'results': results,
+        })
+
+    @action(detail=False, methods=['post'], url_path='batch-confirm')
+    def batch_confirm(self, request):
+        serializer = BulkGraduationConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        confirmed, errors = batch_confirm_graduation(
+            graduation_ids=serializer.validated_data['graduation_ids'],
+            remark=serializer.validated_data.get('remark', ''),
+            operator=request.user,
+        )
+
+        return Response({
+            'confirmed_count': len(confirmed),
+            'error_count': len(errors),
+            'confirmed': [GraduationSerializer(g).data for g in confirmed],
+            'errors': errors,
+        })
+
+    @action(detail=False, methods=['get'], url_path='batch-stats')
+    def batch_stats(self, request):
+        batch_id = request.query_params.get('batch')
+        stats = get_batch_graduation_stats(batch_id=batch_id)
+        return Response({
+            'count': len(stats),
+            'results': stats,
+        })

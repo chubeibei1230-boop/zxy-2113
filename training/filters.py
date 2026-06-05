@@ -1,5 +1,5 @@
 import django_filters
-from .models import Registration, Certificate, CheckIn, Batch
+from .models import Registration, Certificate, CheckIn, Batch, Graduation
 
 
 class RegistrationFilter(django_filters.FilterSet):
@@ -53,3 +53,18 @@ class CheckInFilter(django_filters.FilterSet):
     class Meta:
         model = CheckIn
         fields = ['course', 'batch', 'instructor']
+
+
+class GraduationFilter(django_filters.FilterSet):
+    course = django_filters.NumberFilter(field_name='registration__batch__course')
+    batch = django_filters.NumberFilter(field_name='registration__batch')
+    status = django_filters.CharFilter(field_name='status')
+    instructor = django_filters.NumberFilter(field_name='registration__batch__instructor')
+    student_name = django_filters.CharFilter(field_name='registration__student__name', lookup_expr='icontains')
+    student_phone = django_filters.CharFilter(field_name='registration__student__phone', lookup_expr='icontains')
+    start_date = django_filters.DateFilter(field_name='registration__batch__start_date', lookup_expr='gte')
+    end_date = django_filters.DateFilter(field_name='registration__batch__end_date', lookup_expr='lte')
+
+    class Meta:
+        model = Graduation
+        fields = ['course', 'batch', 'status', 'instructor', 'student_name', 'student_phone']

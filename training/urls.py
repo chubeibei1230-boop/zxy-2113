@@ -6,7 +6,7 @@ from .views import (
     StudentViewSet, RegistrationViewSet, CheckInViewSet,
     CertificateTemplateViewSet, CertificateViewSet, CSVImportView,
     unchecked_list, pending_certificates, import_error_summary,
-    dashboard_stats,
+    dashboard_stats, GraduationViewSet,
 )
 
 router = DefaultRouter()
@@ -18,6 +18,7 @@ router.register(r'registrations', RegistrationViewSet)
 router.register(r'checkins', CheckInViewSet)
 router.register(r'certificate-templates', CertificateTemplateViewSet)
 router.register(r'certificates', CertificateViewSet)
+router.register(r'graduations', GraduationViewSet)
 
 urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth-register'),

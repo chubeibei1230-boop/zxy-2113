@@ -188,6 +188,34 @@ class Certificate(models.Model):
         return f'{self.certificate_no or "N/A"} - {self.registration.student.name}'
 
 
+class Graduation(models.Model):
+    STATUS_ELIGIBLE = 'eligible'
+    STATUS_PENDING_CHECKIN = 'pending_checkin'
+    STATUS_PENDING_PAYMENT = 'pending_payment'
+    STATUS_INELIGIBLE = 'ineligible'
+    STATUS_GRADUATED = 'graduated'
+    STATUS_CHOICES = [
+        (STATUS_ELIGIBLE, '可结业'),
+        (STATUS_PENDING_CHECKIN, '待补签'),
+        (STATUS_PENDING_PAYMENT, '待缴费'),
+        (STATUS_INELIGIBLE, '不可结业'),
+        (STATUS_GRADUATED, '已结业'),
+    ]
+    registration = models.OneToOneField(Registration, on_delete=models.CASCADE, related_name='graduation')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_INELIGIBLE)
+    remark = models.TextField(blank=True, default='')
+    graduated_at = models.DateTimeField(null=True, blank=True)
+    graduated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_graduations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'training_graduation'
+
+    def __str__(self):
+        return f'{self.registration.student.name} - {self.get_status_display()}'
+
+
 class ImportError(models.Model):
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name='import_errors')
     row_number = models.PositiveIntegerField()

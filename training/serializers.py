@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
     Instructor, Course, Batch, Student, Registration,
-    CheckIn, CertificateTemplate, Certificate, ImportError,
+    CheckIn, CertificateTemplate, Certificate, ImportError, Graduation,
 )
 
 User = get_user_model()
@@ -142,4 +142,45 @@ class BulkCheckInSerializer(serializers.Serializer):
 class BulkCertificateReviewSerializer(serializers.Serializer):
     certificate_ids = serializers.ListField(child=serializers.IntegerField())
     action = serializers.ChoiceField(choices=['issue', 'revoke'])
+    remark = serializers.CharField(default='', allow_blank=True)
+
+
+class GraduationSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='registration.student.name', read_only=True)
+    student_phone = serializers.CharField(source='registration.student.phone', read_only=True)
+    batch_name = serializers.CharField(source='registration.batch.name', read_only=True)
+    course_name = serializers.CharField(source='registration.batch.course.name', read_only=True)
+    registration_status = serializers.CharField(source='registration.status', read_only=True)
+    fee_status = serializers.CharField(source='registration.fee_status', read_only=True)
+    checkin_count = serializers.SerializerMethodField()
+    total_required_days = serializers.SerializerMethodField()
+    graduated_by_name = serializers.CharField(source='graduated_by.username', read_only=True, default='')
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Graduation
+        fields = '__all__'
+
+    def get_checkin_count(self, obj):
+        return obj.registration.checkins.count()
+
+    def get_total_required_days(self, obj):
+        from .services.graduation_service import _get_batch_required_dates
+        dates = _get_batch_required_dates(obj.registration.batch)
+        return len(dates)
+
+
+class GraduationUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Graduation
+        fields = ['remark']
+
+
+class EligibilityCheckSerializer(serializers.Serializer):
+    batch = serializers.IntegerField(required=False)
+    registration = serializers.IntegerField(required=False)
+
+
+class BulkGraduationConfirmSerializer(serializers.Serializer):
+    graduation_ids = serializers.ListField(child=serializers.IntegerField())
     remark = serializers.CharField(default='', allow_blank=True)
